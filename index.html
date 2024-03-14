@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Python Code Display</title>
+    <style>
+        pre {
+            background-color: #f4f4f4;
+            padding: 20px;
+            white-space: pre-wrap;
+            font-size: 16px;
+            border-radius: 5px;
+            font-family: 'Courier New', Courier, monospace;
+            line-height: 1.5;
+            overflow-x: auto;
+        }
+    </style>
+</head>
+<body>
+    <h1>Python Code</h1>
+    <pre>
+import mysql.connector
+
+# Connect to MySQL
+def connect_to_database():
+    try:
+        connection = mysql.connector.connect(
+            host="localhost",
+            user="your_username",
+            password="your_password",
+            database="your_database"
+        )
+        print("Connected to MySQL database")
+        return connection
+    except mysql.connector.Error as error:
+        print("Error connecting to MySQL database:", error)
+
+# Execute SQL query
+def execute_query(connection, query):
+    try:
+        cursor = connection.cursor()
+        cursor.execute(query)
+        if query.strip().lower().startswith("select"):
+            result = cursor.fetchall()
+            if result:
+                for row in result:
+                    print(row)
+            else:
+                print("No results found")
+        else:
+            print("Query executed successfully")
+        connection.commit()
+    except mysql.connector.Error as error:
+        print("Error executing query:", error)
+
+# Main function
+def main():
+    connection = connect_to_database()
+    if connection:
+        while True:
+            print("\nChoose an action:")
+            print("1. Execute SQL Query")
+            print("2. Create Table")
+            print("3. Insert Data")
+            print("4. Update Data")
+            print("5. Delete Data")
+            print("6. Drop Table")
+            print("7. Exit")
+            choice = input("Enter your choice (1-7): ")
+
+            if choice == '1':
+                user_input = input("Enter SQL query: ")
+                execute_query(connection, user_input)
+            elif choice == '2':
+                table_name = input("Enter table name: ")
+                columns = input("Enter columns (comma-separated): ")
+                query = f"CREATE TABLE {table_name} ({columns})"
+                execute_query(connection, query)
+            elif choice == '3':
+                table_name = input("Enter table name: ")
+                values = input("Enter values (comma-separated): ")
+                query = f"INSERT INTO {table_name} VALUES ({values})"
+                execute_query(connection, query)
+            elif choice == '4':
+                table_name = input("Enter table name: ")
+                update_values = input("Enter update values: ")
+                condition = input("Enter condition: ")
+                query = f"UPDATE {table_name} SET {update_values} WHERE {condition}"
+                execute_query(connection, query)
+            elif choice == '5':
+                table_name = input("Enter table name: ")
+                condition = input("Enter condition: ")
+                query = f"DELETE FROM {table_name} WHERE {condition}"
+                execute_query(connection, query)
+            elif choice == '6':
+                table_name = input("Enter table name: ")
+                query = f"DROP TABLE {table_name}"
+                execute_query(connection, query)
+            elif choice == '7':
+                break
+            else:
+                print("Invalid choice. Please enter a number between 1 and 7.")
+
+        connection.close()
+        print("Disconnected from MySQL database")
+
+if __name__ == "__main__":
+    main()
+    </pre>
+</body>
+</html>
