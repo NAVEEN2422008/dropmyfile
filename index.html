@@ -108,5 +108,284 @@ def main():
 if __name__ == "__main__":
     main()
     </pre>
+    <pre>
+        import socket
+import threading
+import tkinter as tk
+from tkinter import messagebox
+
+clients = {}
+chat_history = []
+
+def broadcast_user_list():
+    user_list = ",".join(clients.keys())
+    for client in clients.values():
+        client.send("USER_LIST_UPDATE".encode())
+        client.send(user_list.encode())
+
+def broadcast_message(message):
+    for client in clients.values():
+        client.send(message.encode())
+
+def handle_client(client_socket, client_address):
+    global clients
+    client_name = client_socket.recv(1024).decode()
+    clients[client_name] = client_socket
+    broadcast_user_list()
+    app.update_client_list()
+    print(f"{client_name} connected from {client_address}")
+
+    for message in chat_history:
+        client_socket.send(message.encode())
+
+    while True:
+        try:
+            message = client_socket.recv(1024).decode()
+            if message.startswith("FILE_TRANSFER_REQUEST"):
+                sender = client_socket.recv(1024).decode()
+                receiver = client_socket.recv(1024).decode()
+                file_name = client_socket.recv(1024).decode()
+
+                if receiver == "ALL":
+                    for client in clients.values():
+                        if client != client_socket:
+                            client.send("FILE_TRANSFER_REQUEST".encode())
+                            client.send(sender.encode())
+                            client.send(file_name.encode())
+
+                            response = client.recv(1024).decode()
+                            if response == "ACCEPT":
+                                file_data = client_socket.recv(1024)
+                                client.send(file_data)
+                elif receiver in clients:
+                    clients[receiver].send("FILE_TRANSFER_REQUEST".encode())
+                    clients[receiver].send(sender.encode())
+                    clients[receiver].send(file_name.encode())
+
+                    response = clients[receiver].recv(1024).decode()
+                    client_socket.send(response.encode())
+                    if response == "ACCEPT":
+                        file_data = client_socket.recv(1024)
+                        clients[receiver].send(file_data)
+                else:
+                    client_socket.send("RECEIVER_NOT_FOUND".encode())
+
+            elif message == "CLEAR_CHAT":
+                chat_history.clear()
+                broadcast_message("CHAT_CLEARED")
+
+            elif message.startswith("DELETE_MESSAGE"):
+                _, msg_to_delete = message.split(":", 1)
+                if msg_to_delete in chat_history:
+                    chat_history.remove(msg_to_delete)
+                broadcast_message(f"DELETE_MESSAGE:{msg_to_delete}")
+
+            else:
+                chat_history.append(message)
+                broadcast_message(message)
+
+        except Exception as e:
+            print(e)
+            del clients[client_name]
+            client_socket.close()
+            broadcast_user_list()
+            app.update_client_list()
+            broadcast_message(f"{client_name} has been removed from the chat.")
+            break
+
+def start_server():
+    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server.bind(('0.0.0.0', 5555))
+    server.listen(5)
+    print("Server started on port 5555")
+
+    while True:
+        client_socket, client_address = server.accept()
+        client_handler = threading.Thread(target=handle_client, args=(client_socket, client_address))
+        client_handler.start()
+
+class ServerApp:
+    def __init__(self, master):
+        self.master = master
+        self.master.title("Server Management")
+
+        self.client_listbox = tk.Listbox(master)
+        self.client_listbox.pack()
+
+        self.remove_button = tk.Button(master, text="Remove Client", command=self.remove_client)
+        self.remove_button.pack()
+
+        self.clear_chat_button = tk.Button(master, text="Clear Chat", command=self.clear_chat)
+        self.clear_chat_button.pack()
+
+        self.start_server_thread = threading.Thread(target=start_server)
+        self.start_server_thread.daemon = True
+        self.start_server_thread.start()
+
+    def update_client_list(self):
+        self.client_listbox.delete(0, tk.END)
+        for client in clients.keys():
+            self.client_listbox.insert(tk.END, client)
+
+    def remove_client(self):
+        selected_client = self.client_listbox.get(tk.ACTIVE)
+        if selected_client in clients:
+            clients[selected_client].send("YOU_HAVE_BEEN_REMOVED".encode())
+            clients[selected_client].close()
+            del clients[selected_client]
+            self.update_client_list()
+            broadcast_user_list()
+            broadcast_message(f"{selected_client} has been removed from the chat.")
+
+    def clear_chat(self):
+        chat_history.clear()
+        broadcast_message("CHAT_CLEARED")
+
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = ServerApp(root)
+    root.mainloop()
+
+    </pre>
+    <pre>
+        import socket
+import threading
+import tkinter as tk
+from tkinter import filedialog, messagebox, simpledialog, scrolledtext
+
+class ClientApp:
+    def __init__(self, master):
+        self.master = master
+        self.master.title("Chat Client")
+
+        self.name_prompt_window()
+
+    def name_prompt_window(self):
+        self.name_prompt = tk.Toplevel(self.master)
+        self.name_prompt.title("Enter Name")
+        
+        self.name_label = tk.Label(self.name_prompt, text="Enter your name:")
+        self.name_label.pack()
+        
+        self.name_entry = tk.Entry(self.name_prompt)
+        self.name_entry.pack()
+        self.name_entry.bind("<Return>", self.set_name)
+        
+        self.name_button = tk.Button(self.name_prompt, text="OK", command=self.set_name)
+        self.name_button.pack()
+
+    def set_name(self, event=None):
+        self.client_name = self.name_entry.get()
+        if self.client_name:
+            self.name_prompt.destroy()
+            self.setup_main_window()
+            self.client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.client_socket.connect(('127.0.0.1', 5555))
+            self.client_socket.send(self.client_name.encode())
+
+            self.receive_thread = threading.Thread(target=self.receive_messages)
+            self.receive_thread.start()
+
+    def setup_main_window(self):
+        self.chat_window = scrolledtext.ScrolledText(self.master, state='disabled', width=50, height=20)
+        self.chat_window.pack()
+
+        self.message_entry = tk.Entry(self.master, width=50)
+        self.message_entry.pack()
+        self.message_entry.bind("<Return>", self.send_message)
+
+        self.send_button = tk.Button(self.master, text="Send", command=self.send_message)
+        self.send_button.pack()
+
+        self.send_file_button = tk.Button(self.master, text="Send File", command=self.send_file)
+        self.send_file_button.pack()
+
+        self.delete_message_button = tk.Button(self.master, text="Delete My Message", command=self.delete_message)
+        self.delete_message_button.pack()
+
+        self.user_listbox = tk.Listbox(self.master, width=50)
+        self.user_listbox.pack()
+
+    def send_message(self, event=None):
+        message = self.message_entry.get()
+        if message:
+            formatted_message = f"{self.client_name}: {message}"
+            self.client_socket.send(formatted_message.encode())
+            self.chat_window.config(state='normal')
+            self.chat_window.insert(tk.END, formatted_message + '\n')
+            self.chat_window.config(state='disabled')
+            self.chat_window.yview(tk.END)
+            self.message_entry.delete(0, tk.END)
+
+    def send_file(self):
+        receiver = simpledialog.askstring("Receiver", "Enter the receiver's name (or 'ALL' to send to everyone):")
+        if not receiver:
+            return
+        file_path = filedialog.askopenfilename()
+        if not file_path:
+            return
+        file_name = file_path.split('/')[-1]
+
+        self.client_socket.send("FILE_TRANSFER_REQUEST".encode())
+        self.client_socket.send(self.client_name.encode())
+        self.client_socket.send(receiver.encode())
+        self.client_socket.send(file_name.encode())
+
+        response = self.client_socket.recv(1024).decode()
+        if response == "ACCEPT":
+            with open(file_path, 'rb') as f:
+                file_data = f.read(1024)
+                self.client_socket.send(file_data)
+        else:
+            messagebox.showinfo("File Transfer", "File transfer declined")
+
+    def delete_message(self):
+        message_to_delete = simpledialog.askstring("Delete Message", "Enter the exact message to delete:")
+        if message_to_delete:
+            self.client_socket.send(f"DELETE_MESSAGE:{self.client_name}: {message_to_delete}".encode())
+
+    def receive_messages(self):
+        while True:
+            try:
+                message = self.client_socket.recv(1024).decode()
+                if message == "YOU_HAVE_BEEN_REMOVED":
+                    messagebox.showinfo("Removed", "You have been removed by the server.")
+                    self.master.quit()
+                    break
+                elif message == "CHAT_CLEARED":
+                    self.chat_window.config(state='normal')
+                    self.chat_window.delete(1.0, tk.END)
+                    self.chat_window.config(state='disabled')
+                elif message.startswith("DELETE_MESSAGE"):
+                    _, msg_to_delete = message.split(":", 1)
+                    self.chat_window.config(state='normal')
+                    content = self.chat_window.get(1.0, tk.END).split("\n")
+                    new_content = [line for line in content if line != msg_to_delete]
+                    self.chat_window.delete(1.0, tk.END)
+                    self.chat_window.insert(tk.END, "\n".join(new_content) + "\n")
+                    self.chat_window.config(state='disabled')
+                elif message == "USER_LIST_UPDATE":
+                    user_list = self.client_socket.recv(1024).decode()
+                    self.update_user_list(user_list.split(","))
+                else:
+                    self.chat_window.config(state='normal')
+                    self.chat_window.insert(tk.END, message + '\n')
+                    self.chat_window.config(state='disabled')
+                    self.chat_window.yview(tk.END)
+            except:
+                self.client_socket.close()
+                break
+
+    def update_user_list(self, user_list):
+        self.user_listbox.delete(0, tk.END)
+        for user in user_list:
+            self.user_listbox.insert(tk.END, user)
+
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = ClientApp(root)
+    root.mainloop()
+
+    </pre>
 </body>
 </html>
